@@ -1,8 +1,9 @@
-from flask import Flask
+from flask import Flask, jsonify
 from sqlalchemy import create_engine, func
-from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy.orm import scoped_session, sessionmaker, Session
 from sqlalchemy.ext.automap import automap_base
 import datetime as dt
+import numpy as np
 
 
 # Database setup
@@ -11,7 +12,7 @@ Base = automap_base()
 Base.prepare(engine, reflect=True)
 Measurement = Base.classes.measurement
 Station = Base.classes.station
-
+session = Session(engine)
 
 # 2. Create an app
 app = Flask(__name__)
@@ -22,17 +23,16 @@ def home():
     return (
         f"Welcome to the Hawaii Climate API!<br/>"
         f"Available Routes:<br/>"
-        f"/api/v1.0/precipitation<br/>"
-        f"/api/v1.0/stations<br/>"
-        f"/api/v1.0/tobs<br/>"
-        f"/api/v1.0/<start><br/>"
-        f"/api/v1.0/<start>/<end><br/>"
+        f"Precipitation API = /api/v1.0/precipitation<br/>"
+        f"Stations API = /api/v1.0/stations<br/>"
+        f"Tobs API = /api/v1.0/tobs<br/>"
+        f"Start Date = /api/v1.0/date/start<br/>"
+        f"End Date = /api/v1.0/date/start/end<br/>"
     )
 
 @app.route('/api/v1.0/precipitation')
 def precipitation():
-    session = Session()
-    one_year_ago = datetime.now() - timedelta(days=365)
+    one_year_ago = dt.date(2017,8,23) - dt.timedelta(days=365)
     results = session.query(Measurement.date, Measurement.prcp).\
         filter(Measurement.date >= one_year_ago).\
         all()
@@ -43,7 +43,6 @@ def precipitation():
 
 @app.route('/api/v1.0/stations')
 def stations():
-    session = Session()
     results = session.query(Station.station).all()
     session.close()
 
@@ -52,8 +51,7 @@ def stations():
 
 @app.route('/api/v1.0/tobs')
 def tobs():
-    session = Session()
-    one_year_ago = datetime.now() - timedelta(days=365)
+    one_year_ago = dt.date(2017,8,23) - dt.timedelta(days=365)
 
     # Find the most active station
     most_active_station = session.query(Measurement.station, func.count(Measurement.station)).\
@@ -71,16 +69,22 @@ def tobs():
     tobs_list = [tobs[1] for tobs in results]  # Unpack the tuple
     return jsonify(tobs_list)
 
-@app.route('/api/v1.0/<start>')
-def start(start):
-    session = Session()
-    results = session.query(func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs)).\
-        filter(Measurement.date >= start).\
-        all()
+@app.route('/api/v1.0/date/<start>')
+@app.route("/api/v1.0/date/<start>/<end>")
+def start(start, end=None):
+     # Construct a basic select statement
+    sel = [func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs)]
+    if end:
+        results = session.query(*sel).\
+            filter(Measurement.date >= start).\
+            filter(Measurement.date <= end).all()
+    else:
+        results = session.query(*sel).\
+            filter(Measurement.date >= start).all()
     session.close()
 
-    data = list(np.ravel(results))
-    return jsonify(data)
+    tobs_list = [tobs[1] for tobs in results]  # Unpack the tuple
+    return jsonify(tobs_list)
 
 # 4. Define main behavior
 if __name__ == "__main__":
